@@ -9,15 +9,19 @@
       max-width: 900px;
       margin: 20px auto;
       padding: 0 10px;
+      background: #f9fafc;
     }
     h2 {
       text-align: center;
+      color: #007bff;
     }
     section {
       margin-bottom: 25px;
       padding: 15px;
       border: 1px solid #ddd;
       border-radius: 8px;
+      background: white;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
     }
     input, button, textarea {
       width: 100%;
@@ -30,6 +34,7 @@
       border: none;
       border-radius: 6px;
       cursor: pointer;
+      font-weight: bold;
     }
     button:hover {
       background: #0056b3;
@@ -39,6 +44,29 @@
       padding: 10px;
       border-radius: 6px;
       overflow-x: auto;
+    }
+    .room-card {
+      background: #fff;
+      padding: 12px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+    }
+    .participants {
+      background: #f0f8ff;
+      border-radius: 6px;
+      padding: 8px;
+      margin-top: 8px;
+    }
+    .participant {
+      margin-left: 10px;
+      padding: 2px 0;
+      font-size: 0.95em;
+    }
+    .stats {
+      text-align: right;
+      font-weight: bold;
+      color: #333;
     }
   </style>
 </head>
@@ -55,8 +83,12 @@
 
   <section>
     <h3>📋 Active Rooms</h3>
+    <div class="stats">
+      <span id="roomCount">Rooms: 0</span> | 
+      <span id="totalParticipants">Participants: 0</span>
+    </div>
     <button id="listRoomsBtn">Refresh</button>
-    <pre id="roomsList"></pre>
+    <div id="roomsContainer"></div>
   </section>
 
   <section>
@@ -94,16 +126,16 @@
       return res.json();
     }
 
+    const roomsContainer = document.getElementById("roomsContainer");
+    const roomCountEl = document.getElementById("roomCount");
+    const totalParticipantsEl = document.getElementById("totalParticipants");
+
     document.getElementById("createRoomBtn").onclick = async () => {
       const ownerId = document.getElementById("ownerId").value || undefined;
       const ttlSeconds = parseInt(document.getElementById("ttlSeconds").value) || undefined;
       const data = await request("/rooms", "POST", { ownerId, ttlSeconds });
       document.getElementById("createRoomResult").textContent = JSON.stringify(data, null, 2);
-    };
-
-    document.getElementById("listRoomsBtn").onclick = async () => {
-      const data = await request("/rooms");
-      document.getElementById("roomsList").textContent = JSON.stringify(data, null, 2);
+      loadRooms();
     };
 
     document.getElementById("inviteBtn").onclick = async () => {
@@ -128,8 +160,42 @@
       document.getElementById("revokeResult").textContent = JSON.stringify(data, null, 2);
     };
 
-    // Auto-load rooms on page load
-    document.getElementById("listRoomsBtn").click();
+    document.getElementById("listRoomsBtn").onclick = loadRooms;
+
+    async function loadRooms() {
+      const data = await request("/rooms");
+      if (!data.ok) return;
+
+      const rooms = data.rooms;
+      roomCountEl.textContent = `Rooms: ${rooms.length}`;
+      const totalParticipants = rooms.reduce((sum, r) => sum + (r.participants?.length || 0), 0);
+      totalParticipantsEl.textContent = `Participants: ${totalParticipants}`;
+
+      roomsContainer.innerHTML = rooms.map(r => `
+        <div class="room-card">
+          <b>Room ID:</b> ${r.id}<br/>
+          <b>Owner:</b> ${r.ownerId || "—"}<br/>
+          <b>Created:</b> ${new Date(r.createdAt).toLocaleString()}<br/>
+          <b>TTL:</b> ${r.ttlSeconds}s<br/>
+          <b>Participants (${r.participants.length}):</b>
+          <div class="participants">
+            ${r.participants.length === 0
+              ? "<em>No participants currently</em>"
+              : r.participants.map(p => `
+                  <div class="participant">
+                    🧍 <b>${p.userId}</b> 
+                    (${p.role || "participant"}) 
+                    <small>joined: ${new Date(p.joinedAt).toLocaleTimeString()}</small>
+                  </div>`).join("")
+            }
+          </div>
+        </div>
+      `).join("");
+    }
+
+    // Auto-refresh every 10s
+    setInterval(loadRooms, 10000);
+    loadRooms();
   </script>
 </body>
 </html>

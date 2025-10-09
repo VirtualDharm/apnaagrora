@@ -85,22 +85,34 @@ app.post("/rooms", (req, res) => {
   res.json({ ok: true, room: { id: roomId, ...room, participants: [] } });
 });
 
-// List rooms
+// List rooms (with participants)
 app.get("/rooms", (req, res) => {
   const list = Array.from(rooms.entries()).map(([id, r]) => ({
     id,
     ownerId: r.ownerId,
-    participants: Array.from(r.participants),
+    participants: Array.from((r.participants?.values() || [])),
+    ttlSeconds: r.ttlSeconds,
     metadata: r.metadata,
+    createdAt: r.createdAt
   }));
   res.json({ ok: true, rooms: list });
 });
 
-// Get room details
+// Get single room details
 app.get("/rooms/:roomId", (req, res) => {
-  const r = rooms.get(req.params.roomId);
-  if (!r) return res.status(404).json({ ok: false, error: "Room not found" });
-  res.json({ ok: true, room: { id: req.params.roomId, ...r, participants: Array.from(r.participants) } });
+  const room = rooms.get(req.params.roomId);
+  if (!room) return res.status(404).json({ ok: false, error: "Room not found" });
+  res.json({
+    ok: true,
+    room: {
+      id: req.params.roomId,
+      ownerId: room.ownerId,
+      participants: Array.from(room.participants?.values() || []),
+      createdAt: room.createdAt,
+      ttlSeconds: room.ttlSeconds,
+      metadata: room.metadata
+    }
+  });
 });
 
 // Create invite
@@ -172,8 +184,18 @@ io.on("connection", (socket) => {
 
   console.log(`User ${userId} joined room ${roomId}`);
   if (!rooms.has(roomId)) rooms.set(roomId, { ownerId: null, participants: new Set(), createdAt: Date.now(), ttlSeconds: 3600, metadata: {} });
+  // Enhanced participant tracking
   const room = rooms.get(roomId);
-  room.participants.add(userId);
+  if (!room.participants) room.participants = new Map();
+
+  // Save participant details
+  room.participants.set(userId, {
+    userId,
+    role,
+    socketId,
+    joinedAt: new Date().toISOString()
+  });
+
   socket.join(roomId);
 
   socket.to(roomId).emit("user-joined", { socketId, userId, role });
@@ -184,7 +206,9 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`User ${userId} left ${roomId}`);
-    room.participants.delete(userId);
+    if (room.participants) {
+      room.participants.delete(userId);
+    }
     socket.to(roomId).emit("user-left", { userId });
   });
 });

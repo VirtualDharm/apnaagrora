@@ -143,99 +143,87 @@
       socket.on("connect_error", (err) => log(`❌ ${err.message}`));
     };
 
-    // 📺 Screen Sharing logic
+    // 📺 Screen Sharing logic (robust)
     shareScreenBtn.onclick = async () => {
-      if (!pc) return alert("Connect first!");
+    if (!pc) {
+        alert("Connect first!");
+        return;
+    }
 
-      if (!screenStream) {
-        log("🔍 No active screen stream, initiating screen sharing");
+    if (!localStream) {
+        log("⚠️ Local camera stream not initialized. Starting it now...");
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+        document.getElementById("localVideo").srcObject = localStream;
+    }
+
+    // START SHARING
+    if (!screenStream) {
         try {
-            log("📡 Requesting display media with video: true");
-            screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-            log("✅ Successfully obtained screen stream");
+        log("🔍 No active screen stream, initiating screen sharing");
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenTrack = screenStream.getTracks()[0];
+        log(`✅ Screen track obtained: id=${screenTrack.id}, label=${screenTrack.label}`);
 
-            const screenTrack = screenStream.getTracks()[0];
-            log(`🎥 Screen track obtained: kind=${screenTrack.kind}, id=${screenTrack.id}, label=${screenTrack.label}`);
+        let sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
 
-            const senders = pc.getSenders();
-            log(`🔎 Found ${senders.length} senders in peer connection`);
-            const sender = senders.find(s => {
-            const trackKind = s.track ? s.track.kind : 'none';
-            log(`🔍 Checking sender: track kind=${trackKind}, id=${s.track?.id || 'none'}`);
-            return s.track?.kind === "video";
-            });
-            
-            if (!sender) {
-            log("❌ No video sender found in peer connection");
-            throw new Error("No video sender found");
-            }
-            log(`✅ Video sender found: track id=${sender.track?.id || 'none'}`);
-
-            log("🔄 Replacing track with screen track");
-            await sender.replaceTrack(screenTrack);
-            log("✅ Track replacement successful");
-
-            log("📺 Setting local video element source to screen stream");
-            const localVideoElement = document.getElementById("localVideo");
-            if (!localVideoElement) {
-            log("❌ Local video element not found");
-            throw new Error("Local video element not found");
-            }
-            localVideoElement.srcObject = screenStream;
-            log("✅ Local video element source set to screen stream");
-
-            log("🖥️ Screen sharing started successfully");
-
-            // Revert to camera when screen sharing stops
-            screenTrack.onended = async () => {
-            log("🛑 Screen sharing ended event triggered");
-            if (!localStream) {
-                log("❌ No local stream available to revert to");
-                return;
-            }
-
-            const camTrack = localStream.getVideoTracks()[0];
-            if (!camTrack) {
-                log("❌ No video track found in local stream");
-                return;
-            }
-            log(`🎥 Camera track: kind=${camTrack.kind}, id=${camTrack.id}, label=${camTrack.label}`);
-
-            const videoSender = pc.getSenders().find(s => s.track?.kind === "video");
-            if (!videoSender) {
-                log("❌ No video sender found for reverting to camera");
-                return;
-            }
-
-            log("🔄 Reverting to camera track");
-            await videoSender.replaceTrack(camTrack);
-            log("✅ Successfully reverted to camera track");
-
-            log("📺 Setting local video element source to camera stream");
-            localVideoElement.srcObject = localStream;
-            log("✅ Local video element source set to camera stream");
-
-            screenStream = null;
-            log("🧹 Screen stream cleared");
-            };
-        } catch (err) {
-            log(`❌ Screen share error: ${err.message}`);
-            console.error("Detailed error:", err);
-        }
+        // If no sender exists yet (first stream or no camera), add new track
+        if (!sender) {
+            log("⚠️ No existing video sender found, adding screen track as new sender");
+            pc.addTrack(screenTrack, screenStream);
         } else {
-        log("🔍 Active screen stream detected, stopping screen sharing");
-        const tracks = screenStream.getTracks();
-        log(`🛑 Stopping ${tracks.length} screen stream tracks`);
-        tracks.forEach((t, index) => {
-            log(`🛑 Stopping track ${index + 1}: kind=${t.kind}, id=${t.id}, label=${t.label}`);
-            t.stop();
-            log(`✅ Track ${index + 1} stopped`);
-        });
-        screenStream = null;
-        log("🧹 Screen stream cleared after manual stop");
+            log(`🔄 Replacing existing sender track (${sender.track.id}) with screen track`);
+            await sender.replaceTrack(screenTrack);
         }
-    };
 
+        // Update local view
+        document.getElementById("localVideo").srcObject = screenStream;
+        log("📺 Local preview updated to screen stream");
+
+        // Handle when screen share stops
+        screenTrack.onended = async () => {
+            log("🛑 Screen sharing ended, reverting to camera");
+            const camTrack = localStream.getVideoTracks()[0];
+            if (camTrack) {
+            const sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
+            if (sender) {
+                await sender.replaceTrack(camTrack);
+                document.getElementById("localVideo").srcObject = localStream;
+                log("✅ Reverted to camera");
+            }
+            }
+            screenStream = null;
+
+            // 🔄 Trigger renegotiation so peers switch back to camera
+            try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit("offer", { sdp: offer });
+            log("🔄 Sent re-offer after stopping screen share");
+            } catch (err) {
+            log("⚠️ Re-offer failed: " + err.message);
+            }
+        };
+
+        // 🔄 Trigger renegotiation so peers receive new screen track
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit("offer", { sdp: offer });
+        log("📡 Sent re-offer after starting screen share");
+
+        } catch (err) {
+        log(`❌ Screen share error: ${err.message}`);
+        console.error("Detailed error:", err);
+        }
+    }
+
+    // STOP SHARING manually
+    else {
+        log("🛑 Stopping active screen stream manually");
+        screenStream.getTracks().forEach((t) => t.stop());
+        screenStream = null;
+    }
+    };
     leaveBtn.onclick = () => {
       if (socket) {
         socket.disconnect();

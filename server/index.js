@@ -63,10 +63,19 @@ function signToken({ roomId, userId, role = "participant", expiresIn = TOKEN_TTL
 }
 
 function verifyAndCheckToken(token) {
-  const payload = jwt.verify(token, JWT_SECRET);
-  const stored = tokens.get(payload.jti);
-  if (!stored) throw new Error("Token revoked or expired");
-  return payload;
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    const stored = tokens.get(payload.jti);
+
+    if (!stored) {
+      console.warn(`Token ${payload.jti} not found in memory — allowing fallback`);
+      return payload; // Allow valid JWT even if not in memory
+    }
+
+    return payload;
+  } catch (err) {
+    throw new Error("Invalid or expired token");
+  }
 }
 
 /* -------------------------

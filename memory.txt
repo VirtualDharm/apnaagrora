@@ -1,0 +1,11 @@
+Date: Monday, 6 October 2025
+OS: win32
+Working Directory: C:\Projects\apnaagrora
+Folder Structure:
+C:\Projects\apnaagrora\
+├───.env
+├───package-lock.json
+├───package.json
+├───server.js
+└───node_modules
+...

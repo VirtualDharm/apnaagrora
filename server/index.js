@@ -80,7 +80,7 @@ app.get("/", (req, res) => res.send("Casting API running in memory mode ✅"));
 app.post("/rooms", (req, res) => {
   const { ownerId, ttlSeconds = 3600, metadata = {} } = req.body || {};
   const roomId = makeRoomId();
-  const room = { ownerId, participants: new Set(), createdAt: Date.now(), ttlSeconds, metadata };
+  const room = { ownerId, participants: new Map(), createdAt: Date.now(), ttlSeconds, metadata };
   rooms.set(roomId, room);
   res.json({ ok: true, room: { id: roomId, ...room, participants: [] } });
 });
@@ -183,7 +183,7 @@ io.on("connection", (socket) => {
   const { id: userId, roomId, role, jti } = socket.user;
 
   console.log(`User ${userId} joined room ${roomId}`);
-  if (!rooms.has(roomId)) rooms.set(roomId, { ownerId: null, participants: new Set(), createdAt: Date.now(), ttlSeconds: 3600, metadata: {} });
+  if (!rooms.has(roomId)) rooms.set(roomId, { ownerId: null, participants: new Map(), createdAt: Date.now(), ttlSeconds: 3600, metadata: {} });
   // Enhanced participant tracking
   const room = rooms.get(roomId);
   if (!room.participants) room.participants = new Map();

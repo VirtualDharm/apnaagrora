@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Test Client - Casting API</title>
+  <title>Test Client - WebRTC</title>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <style>
     body {
@@ -34,8 +34,15 @@
       background-color: #007bff;
       color: white;
     }
-    button:hover {
-      background-color: #0056b3;
+    button:hover { background-color: #0056b3; }
+    #logs {
+      text-align: left;
+      background: #f4f4f4;
+      border-radius: 8px;
+      padding: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 15px;
     }
   </style>
 </head>
@@ -47,6 +54,7 @@
     <input id="token" placeholder="JWT Token" />
     <div class="controls">
       <button id="connectBtn">Connect</button>
+      <button id="shareScreenBtn">Share Screen</button>
       <button id="leaveBtn">Leave</button>
     </div>
   </div>
@@ -64,12 +72,13 @@
       const el = document.getElementById("logs");
       el.textContent += msg + "\n";
       el.scrollTop = el.scrollHeight;
+      console.log(msg);
     };
 
-    let socket, pc, localStream;
-
+    let socket, pc, localStream, screenStream;
     const connectBtn = document.getElementById("connectBtn");
     const leaveBtn = document.getElementById("leaveBtn");
+    const shareScreenBtn = document.getElementById("shareScreenBtn");
 
     connectBtn.onclick = async () => {
       const roomId = document.getElementById("roomId").value.trim();
@@ -86,7 +95,6 @@
         pc = new RTCPeerConnection({
           iceServers: [
             { urls: "stun:stun.l.google.com:19302" },
-            // Optional TURN from env config
             { urls: "turn:your.turn.host:3478", username: "turnuser", credential: "turnpass" }
           ]
         });
@@ -99,13 +107,13 @@
           document.getElementById("remoteVideo").srcObject = e.streams[0];
         };
 
+        // Start camera
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         document.getElementById("localVideo").srcObject = localStream;
         localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
 
-        // Offer / Answer exchange
         socket.on("offer", async ({ sdp, from }) => {
-          log(`📨 Received offer from ${from}`);
+          log(`📨 Offer from ${from}`);
           await pc.setRemoteDescription(new RTCSessionDescription(sdp));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
@@ -113,34 +121,119 @@
         });
 
         socket.on("answer", async ({ sdp, from }) => {
-          log(`📨 Received answer from ${from}`);
+          log(`📨 Answer from ${from}`);
           await pc.setRemoteDescription(new RTCSessionDescription(sdp));
         });
 
         socket.on("ice-candidate", async ({ candidate }) => {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          } catch (err) {
-            console.error("ICE error", err);
-          }
+          if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
         });
 
-        // Notify when another user joins (you can initiate offer)
         socket.on("user-joined", async ({ userId }) => {
-          log(`👤 User joined: ${userId}`);
+          log(`👤 ${userId} joined`);
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
           socket.emit("offer", { sdp: offer });
         });
 
-        socket.on("user-left", ({ userId }) => log(`👋 User left: ${userId}`));
-        socket.on("room-closed", () => {
-          log("🚫 Room closed by admin/server");
-          cleanup();
-        });
+        socket.on("user-left", ({ userId }) => log(`👋 ${userId} left`));
+        socket.on("room-closed", () => { log("🚫 Room closed"); cleanup(); });
       });
 
-      socket.on("connect_error", (err) => log(`❌ Connection error: ${err.message}`));
+      socket.on("connect_error", (err) => log(`❌ ${err.message}`));
+    };
+
+    // 📺 Screen Sharing logic
+    shareScreenBtn.onclick = async () => {
+      if (!pc) return alert("Connect first!");
+
+      if (!screenStream) {
+        log("🔍 No active screen stream, initiating screen sharing");
+        try {
+            log("📡 Requesting display media with video: true");
+            screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+            log("✅ Successfully obtained screen stream");
+
+            const screenTrack = screenStream.getTracks()[0];
+            log(`🎥 Screen track obtained: kind=${screenTrack.kind}, id=${screenTrack.id}, label=${screenTrack.label}`);
+
+            const senders = pc.getSenders();
+            log(`🔎 Found ${senders.length} senders in peer connection`);
+            const sender = senders.find(s => {
+            const trackKind = s.track ? s.track.kind : 'none';
+            log(`🔍 Checking sender: track kind=${trackKind}, id=${s.track?.id || 'none'}`);
+            return s.track?.kind === "video";
+            });
+            
+            if (!sender) {
+            log("❌ No video sender found in peer connection");
+            throw new Error("No video sender found");
+            }
+            log(`✅ Video sender found: track id=${sender.track?.id || 'none'}`);
+
+            log("🔄 Replacing track with screen track");
+            await sender.replaceTrack(screenTrack);
+            log("✅ Track replacement successful");
+
+            log("📺 Setting local video element source to screen stream");
+            const localVideoElement = document.getElementById("localVideo");
+            if (!localVideoElement) {
+            log("❌ Local video element not found");
+            throw new Error("Local video element not found");
+            }
+            localVideoElement.srcObject = screenStream;
+            log("✅ Local video element source set to screen stream");
+
+            log("🖥️ Screen sharing started successfully");
+
+            // Revert to camera when screen sharing stops
+            screenTrack.onended = async () => {
+            log("🛑 Screen sharing ended event triggered");
+            if (!localStream) {
+                log("❌ No local stream available to revert to");
+                return;
+            }
+
+            const camTrack = localStream.getVideoTracks()[0];
+            if (!camTrack) {
+                log("❌ No video track found in local stream");
+                return;
+            }
+            log(`🎥 Camera track: kind=${camTrack.kind}, id=${camTrack.id}, label=${camTrack.label}`);
+
+            const videoSender = pc.getSenders().find(s => s.track?.kind === "video");
+            if (!videoSender) {
+                log("❌ No video sender found for reverting to camera");
+                return;
+            }
+
+            log("🔄 Reverting to camera track");
+            await videoSender.replaceTrack(camTrack);
+            log("✅ Successfully reverted to camera track");
+
+            log("📺 Setting local video element source to camera stream");
+            localVideoElement.srcObject = localStream;
+            log("✅ Local video element source set to camera stream");
+
+            screenStream = null;
+            log("🧹 Screen stream cleared");
+            };
+        } catch (err) {
+            log(`❌ Screen share error: ${err.message}`);
+            console.error("Detailed error:", err);
+        }
+        } else {
+        log("🔍 Active screen stream detected, stopping screen sharing");
+        const tracks = screenStream.getTracks();
+        log(`🛑 Stopping ${tracks.length} screen stream tracks`);
+        tracks.forEach((t, index) => {
+            log(`🛑 Stopping track ${index + 1}: kind=${t.kind}, id=${t.id}, label=${t.label}`);
+            t.stop();
+            log(`✅ Track ${index + 1} stopped`);
+        });
+        screenStream = null;
+        log("🧹 Screen stream cleared after manual stop");
+        }
     };
 
     leaveBtn.onclick = () => {
@@ -154,6 +247,7 @@
     function cleanup() {
       if (pc) pc.close();
       if (localStream) localStream.getTracks().forEach((t) => t.stop());
+      if (screenStream) screenStream.getTracks().forEach((t) => t.stop());
     }
   </script>
 </body>

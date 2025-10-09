@@ -1,110 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Casting API Admin</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 0 10px;
+    }
+    h2 {
+      text-align: center;
+    }
+    section {
+      margin-bottom: 25px;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+    input, button, textarea {
+      width: 100%;
+      padding: 8px;
+      margin: 6px 0;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    pre {
+      background: #f4f4f4;
+      padding: 10px;
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <h2>📞 Casting API Admin Panel</h2>
 
-  <!doctype html>
-  <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Casting API Admin</title>
-    <style>
-      body { font-family: Arial, Helvetica, sans-serif; max-width: 900px; margin: 20px; }
-      input, button, textarea { padding: 8px; margin: 4px 0; width: 100%; }
-      .row { display:flex; gap:10px; }
-      .col { flex:1; }
-      pre { background:#f4f4f4; padding:10px; overflow:auto; }
-      .small { font-size:0.9em; color:#666; }
-    </style>
-  </head>
-  <body>
-    <h2>Casting API — Admin</h2>
+  <section>
+    <h3>🧩 Create Room</h3>
+    <input id="ownerId" placeholder="Owner ID (optional)" />
+    <input id="ttlSeconds" placeholder="TTL seconds (default 3600)" />
+    <button id="createRoomBtn">Create Room</button>
+    <pre id="createRoomResult"></pre>
+  </section>
 
-    <section>
-      <h3>Create room</h3>
-      <input id="ownerId" placeholder="ownerId (optional)" />
-      <input id="ttlSeconds" placeholder="ttlSeconds (3600)" />
-      <input id="meta" placeholder='metadata JSON ({"topic":"demo"})' />
-      <button id="createRoomBtn">Create Room</button>
-      <pre id="createRoomResult"></pre>
-    </section>
+  <section>
+    <h3>📋 Active Rooms</h3>
+    <button id="listRoomsBtn">Refresh</button>
+    <pre id="roomsList"></pre>
+  </section>
 
-    <section>
-      <h3>List rooms</h3>
-      <button id="listRoomsBtn">Refresh Rooms</button>
-      <pre id="roomsList"></pre>
-    </section>
+  <section>
+    <h3>🎟️ Create Invite</h3>
+    <input id="inviteRoomId" placeholder="Room ID" />
+    <input id="inviteeId" placeholder="Invitee ID (optional)" />
+    <input id="inviteTtl" placeholder="Invite TTL (default 900s)" />
+    <button id="inviteBtn">Create Invite</button>
+    <pre id="inviteResult"></pre>
+  </section>
 
-    <section>
-      <h3>Create Invite</h3>
-      <input id="inviteRoomId" placeholder="roomId" />
-      <input id="inviteeId" placeholder="inviteeId (optional)" />
-      <input id="inviteTtl" placeholder="ttlSeconds (900)" />
-      <button id="inviteBtn">Create Invite</button>
-      <pre id="inviteResult"></pre>
-    </section>
+  <section>
+    <h3>🔐 Generate Token</h3>
+    <input id="tokenRoomId" placeholder="Room ID" />
+    <input id="tokenUserId" placeholder="User ID" />
+    <input id="tokenTtl" placeholder="TTL seconds (default 3600)" />
+    <button id="tokenBtn">Generate Token</button>
+    <pre id="tokenResult"></pre>
+  </section>
 
-    <section>
-      <h3>Generate Token (explicit)</h3>
-      <input id="tokenRoomId" placeholder="roomId" />
-      <input id="tokenUserId" placeholder="userId" />
-      <input id="tokenTtl" placeholder="ttlSeconds (3600)" />
-      <button id="tokenBtn">Generate Token</button>
-      <pre id="tokenResult"></pre>
-    </section>
+  <section>
+    <h3>🚫 Revoke Token</h3>
+    <input id="revokeJti" placeholder="Token JTI" />
+    <button id="revokeBtn">Revoke Token</button>
+    <pre id="revokeResult"></pre>
+  </section>
 
-    <section>
-      <h3>Revoke Token (by jti)</h3>
-      <input id="revokeJti" placeholder="jti" />
-      <button id="revokeBtn">Revoke</button>
-      <pre id="revokeResult"></pre>
-    </section>
+  <script>
+    const base = location.origin;
 
-    <script>
-      const base = location.origin;
+    async function request(path, method = "GET", body = null) {
+      const opts = { method, headers: { "Content-Type": "application/json" } };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(base + path, opts);
+      return res.json();
+    }
 
-      document.getElementById("createRoomBtn").onclick = async () => {
-        const ownerId = document.getElementById("ownerId").value || undefined;
-        const ttlSeconds = parseInt(document.getElementById("ttlSeconds").value) || undefined;
-        let metadata = {};
-        try {
-          const txt = document.getElementById("meta").value;
-          if (txt) metadata = JSON.parse(txt);
-        } catch (e) { alert("invalid JSON metadata"); return; }
-        const res = await fetch(base + "/rooms", { method: "POST", headers: {'content-type':'application/json'}, body: JSON.stringify({ ownerId, ttlSeconds, metadata })});
-        const j = await res.json();
-        document.getElementById("createRoomResult").textContent = JSON.stringify(j, null, 2);
-      };
+    document.getElementById("createRoomBtn").onclick = async () => {
+      const ownerId = document.getElementById("ownerId").value || undefined;
+      const ttlSeconds = parseInt(document.getElementById("ttlSeconds").value) || undefined;
+      const data = await request("/rooms", "POST", { ownerId, ttlSeconds });
+      document.getElementById("createRoomResult").textContent = JSON.stringify(data, null, 2);
+    };
 
-      document.getElementById("listRoomsBtn").onclick = async () => {
-        const res = await fetch(base + "/rooms");
-        document.getElementById("roomsList").textContent = JSON.stringify(await res.json(), null, 2);
-      };
+    document.getElementById("listRoomsBtn").onclick = async () => {
+      const data = await request("/rooms");
+      document.getElementById("roomsList").textContent = JSON.stringify(data, null, 2);
+    };
 
-      document.getElementById("inviteBtn").onclick = async () => {
-        const roomId = document.getElementById("inviteRoomId").value;
-        const inviteeId = document.getElementById("inviteeId").value || undefined;
-        const ttlSeconds = parseInt(document.getElementById("inviteTtl").value) || undefined;
-        if (!roomId) return alert("roomId required");
-        const res = await fetch(base + "/rooms/" + roomId + "/invite", { method: "POST", headers: {'content-type':'application/json'}, body: JSON.stringify({ inviteeId, ttlSeconds })});
-        document.getElementById("inviteResult").textContent = JSON.stringify(await res.json(), null, 2);
-      };
+    document.getElementById("inviteBtn").onclick = async () => {
+      const roomId = document.getElementById("inviteRoomId").value;
+      const inviteeId = document.getElementById("inviteeId").value || undefined;
+      const ttlSeconds = parseInt(document.getElementById("inviteTtl").value) || undefined;
+      const data = await request(`/rooms/${roomId}/invite`, "POST", { inviteeId, ttlSeconds });
+      document.getElementById("inviteResult").textContent = JSON.stringify(data, null, 2);
+    };
 
-      document.getElementById("tokenBtn").onclick = async () => {
-        const roomId = document.getElementById("tokenRoomId").value;
-        const userId = document.getElementById("tokenUserId").value;
-        const ttl = parseInt(document.getElementById("tokenTtl").value) || undefined;
-        if (!roomId || !userId) return alert("roomId and userId required");
-        const res = await fetch(base + "/token", { method: "POST", headers: {'content-type':'application/json'}, body: JSON.stringify({ roomId, userId, ttlSeconds: ttl })});
-        document.getElementById("tokenResult").textContent = JSON.stringify(await res.json(), null, 2);
-      };
+    document.getElementById("tokenBtn").onclick = async () => {
+      const roomId = document.getElementById("tokenRoomId").value;
+      const userId = document.getElementById("tokenUserId").value;
+      const ttlSeconds = parseInt(document.getElementById("tokenTtl").value) || undefined;
+      const data = await request("/token", "POST", { roomId, userId, ttlSeconds });
+      document.getElementById("tokenResult").textContent = JSON.stringify(data, null, 2);
+    };
 
-      document.getElementById("revokeBtn").onclick = async () => {
-        const jti = document.getElementById("revokeJti").value;
-        if (!jti) return alert("jti required");
-        const res = await fetch(base + "/token/" + jti + "/revoke", { method: "POST" });
-        document.getElementById("revokeResult").textContent = JSON.stringify(await res.json(), null, 2);
-      };
+    document.getElementById("revokeBtn").onclick = async () => {
+      const jti = document.getElementById("revokeJti").value;
+      const data = await request(`/token/${jti}/revoke`, "POST");
+      document.getElementById("revokeResult").textContent = JSON.stringify(data, null, 2);
+    };
 
-      // initial fetch
-      document.getElementById("listRoomsBtn").click();
-    </script>
-  </body>
-  </html>
-  
+    // Auto-load rooms on page load
+    document.getElementById("listRoomsBtn").click();
+  </script>
+</body>
+</html>

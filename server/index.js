@@ -38,8 +38,8 @@ const TURN_SERVER_URL = process.env.TURN_SERVER_URL || "";
 const TURN_USERNAME = process.env.TURN_USERNAME || "";
 const TURN_PASSWORD = process.env.TURN_PASSWORD || "";
 
-// In-memory stores (reset on restart)
-const rooms = new Map(); // roomId -> {ownerId, participants:Set, createdAt, ttlSeconds, metadata}
+// In-memory stores
+const rooms = new Map(); // roomId -> {ownerId, participants:Map, createdAt, ttlSeconds, metadata}
 const tokens = new Map(); // jti -> {roomId, userId, role, expiresAt}
 console.log("Server started with memory store. Data resets on restart.");
 
@@ -120,17 +120,29 @@ app.post("/rooms/:roomId/invite", (req, res) => {
   const room = rooms.get(req.params.roomId);
   if (!room) return res.status(404).json({ ok: false, error: "Room not found" });
 
-  const { inviteeId = "guest_" + Math.random().toString(36).slice(2, 6), ttlSeconds = 900, role = "participant" } = req.body || {};
-  const { token, jti, expiresAt } = signToken({ roomId: req.params.roomId, userId: inviteeId, role, expiresIn: ttlSeconds });
+  const inviteeId = req.body?.inviteeId?.trim() || "guest_" + Math.random().toString(36).slice(2, 8);
+  const ttlSeconds = parseInt(req.body?.ttlSeconds || 900, 10);
+  const role = req.body?.role || "participant";
+
+  const { token, jti, expiresAt } = signToken({
+    roomId: req.params.roomId,
+    userId: inviteeId,
+    role,
+    expiresIn: ttlSeconds,
+  });
+
   const inviteLink = `${BASE_URL}/join?roomId=${req.params.roomId}&token=${token}`;
   res.json({ ok: true, invite: { roomId: req.params.roomId, token, jti, expiresAt, inviteLink } });
 });
 
 // Generate token manually
 app.post("/token", (req, res) => {
-  const { roomId, userId, role = "participant", ttlSeconds } = req.body || {};
+  const { roomId, role = "participant", ttlSeconds } = req.body || {};
   if (!rooms.has(roomId)) return res.status(404).json({ ok: false, error: "Room not found" });
+
+  const userId = req.body?.userId?.trim() || "user_" + Math.random().toString(36).slice(2, 8);
   const { token, jti, expiresAt } = signToken({ roomId, userId, role, expiresIn: ttlSeconds || TOKEN_TTL });
+
   res.json({ ok: true, token, jti, expiresAt });
 });
 
@@ -170,7 +182,12 @@ io.use((socket, next) => {
     const token = socket.handshake.auth?.token || socket.handshake.query?.token;
     if (!token) return next(new Error("No token provided"));
     const payload = verifyAndCheckToken(token);
-    socket.user = { id: payload.userId, roomId: payload.roomId, role: payload.role, jti: payload.jti };
+    socket.user = {
+      id: payload.userId || "anon_" + socket.id.slice(0, 6),
+      roomId: payload.roomId,
+      role: payload.role,
+      jti: payload.jti
+    };
     next();
   } catch (err) {
     console.error("Socket auth error:", err.message);
@@ -180,11 +197,14 @@ io.use((socket, next) => {
 
 io.on("connection", (socket) => {
   const { id: socketId } = socket;
-  const { id: userId, roomId, role, jti } = socket.user;
+  const { id: userId, roomId, role } = socket.user;
 
   console.log(`User ${userId} joined room ${roomId}`);
-  if (!rooms.has(roomId)) rooms.set(roomId, { ownerId: null, participants: new Map(), createdAt: Date.now(), ttlSeconds: 3600, metadata: {} });
-  // Enhanced participant tracking
+
+  if (!rooms.has(roomId)) {
+    rooms.set(roomId, { ownerId: null, participants: new Map(), createdAt: Date.now(), ttlSeconds: 3600, metadata: {} });
+  }
+
   const room = rooms.get(roomId);
   if (!room.participants) room.participants = new Map();
 
@@ -197,7 +217,6 @@ io.on("connection", (socket) => {
   });
 
   socket.join(roomId);
-
   socket.to(roomId).emit("user-joined", { socketId, userId, role });
 
   socket.on("offer", (data) => socket.to(roomId).emit("offer", { from: userId, sdp: data.sdp }));
@@ -206,15 +225,13 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`User ${userId} left ${roomId}`);
-    if (room.participants) {
-      room.participants.delete(userId);
-    }
+    if (room.participants) room.participants.delete(userId);
     socket.to(roomId).emit("user-left", { userId });
   });
 });
 
 /* -------------------------
-   Cleanup (expire tokens/rooms)
+   Cleanup
 -------------------------- */
 setInterval(() => {
   const now = Date.now();

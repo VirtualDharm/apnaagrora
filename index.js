@@ -19,15 +19,15 @@ app.use(cors());
 app.use(express.json());
 
 // Serve all files in /public
-app.use(express.static(path.join(__dirname, "../public")));
+app.use(express.static(path.join(__dirname, "./public")));
 
 // Explicit aliases
 app.get("/admin", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/admin.html"));
+  res.sendFile(path.join(__dirname, "./public/admin.html"));
 });
 
 app.get("/test-client", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/test-client.html"));
+  res.sendFile(path.join(__dirname, "./public/client.html"));
 });
 
 const PORT = process.env.PORT || 5000;
